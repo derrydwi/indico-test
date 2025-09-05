@@ -1,0 +1,103 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: indico_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres_test:
+    image: postgres:15-alpine
+    container_name: indico_postgres_test
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_TEST_DB}
+    ports:
+      - "${POSTGRES_TEST_PORT}:5432"
+    volumes:
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: indico_app
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_SSL_MODE=${DB_SSL_MODE}
+      - DB_MAX_CONNS=${DB_MAX_CONNS}
+      - DB_MAX_IDLE=${DB_MAX_IDLE}
+      - SERVER_PORT=${SERVER_PORT}
+      - SERVER_READ_TIMEOUT=${SERVER_READ_TIMEOUT}
+      - SERVER_WRITE_TIMEOUT=${SERVER_WRITE_TIMEOUT}
+      - SERVER_IDLE_TIMEOUT=${SERVER_IDLE_TIMEOUT}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - LOG_FORMAT=${LOG_FORMAT}
+      - JOB_WORKERS=${JOB_WORKERS}
+      - JOB_BATCH_SIZE=${JOB_BATCH_SIZE}
+      - JOB_QUEUE_SIZE=${JOB_QUEUE_SIZE}
+      - JOB_RETRY_ATTEMPTS=${JOB_RETRY_ATTEMPTS}
+      - JOB_RETRY_DELAY=${JOB_RETRY_DELAY}
+    ports:
+      - "${SERVER_PORT}:${SERVER_PORT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - settlements_data:/tmp/settlements
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: indico_prometheus
+    ports:
+      - "${PROMETHEUS_PORT}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: indico_grafana
+    ports:
+      - "${GRAFANA_PORT}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+
+volumes:
+  postgres_data:
+  grafana_data:
+  settlements_data:
+
+networks:
+  default:
+    name: indico_network
